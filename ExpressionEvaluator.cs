@@ -10,7 +10,7 @@ public sealed class ExpressionEvaluator
         ArgumentException.ThrowIfNullOrWhiteSpace(expression);
 
         var parser = new Parser(expression.Replace(',', '.'));
-        var value = parser.ParseExpression();
+        var value = parser.ParseExpression().Value;
         parser.SkipWhiteSpace();
 
         if (!parser.IsAtEnd)
@@ -40,71 +40,95 @@ public sealed class ExpressionEvaluator
     {
         private int _position;
 
+        public readonly record struct ParsedValue(double Value, bool IsPercentage);
+
         public bool IsAtEnd => _position >= text.Length;
 
-        public double ParseExpression()
+        public ParsedValue ParseExpression()
         {
-            var value = ParseTerm();
+            var parsed = ParseTerm();
+            var value = parsed.Value;
+            var isPercentage = parsed.IsPercentage;
             while (true)
             {
                 SkipWhiteSpace();
-                if (Match('+')) value += ParseTerm();
-                else if (Match('-')) value -= ParseTerm();
-                else return value;
+                if (Match('+'))
+                {
+                    var right = ParseTerm();
+                    value += right.IsPercentage ? value * right.Value : right.Value;
+                    isPercentage = false;
+                }
+                else if (Match('-'))
+                {
+                    var right = ParseTerm();
+                    value -= right.IsPercentage ? value * right.Value : right.Value;
+                    isPercentage = false;
+                }
+                else return new ParsedValue(value, isPercentage);
                 EnsureFinite(value);
             }
         }
 
-        private double ParseTerm()
+        private ParsedValue ParseTerm()
         {
             var value = ParseUnary();
+            var hasMultiplicationOrDivision = false;
             while (true)
             {
                 SkipWhiteSpace();
-                if (Match('*')) value *= ParseUnary();
+                if (Match('*'))
+                {
+                    value = new ParsedValue(value.Value * ParseUnary().Value, false);
+                    hasMultiplicationOrDivision = true;
+                }
                 else if (Match('/'))
                 {
-                    var divisor = ParseUnary();
+                    var divisor = ParseUnary().Value;
                     if (divisor == 0d) throw new DivideByZeroException("На ноль делить нельзя.");
-                    value /= divisor;
+                    value = new ParsedValue(value.Value / divisor, false);
+                    hasMultiplicationOrDivision = true;
                 }
-                else return value;
-                EnsureFinite(value);
+                else return hasMultiplicationOrDivision ? new ParsedValue(value.Value, false) : value;
+                EnsureFinite(value.Value);
             }
         }
 
-        private double ParseUnary()
+        private ParsedValue ParseUnary()
         {
             SkipWhiteSpace();
             if (Match('+')) return ParseUnary();
-            if (Match('-')) return -ParseUnary();
+            if (Match('-'))
+            {
+                var negated = ParseUnary();
+                return negated with { Value = -negated.Value };
+            }
             if (Match('√'))
             {
-                var radicand = ParseUnary();
+                var radicand = ParseUnary().Value;
                 if (radicand < 0d) throw new ArithmeticException("Нельзя извлечь квадратный корень из отрицательного числа.");
-                return Math.Sqrt(radicand);
+                return new ParsedValue(Math.Sqrt(radicand), false);
             }
             var value = ParsePower();
-            while (Match('%')) value /= 100d;
+            while (Match('%')) value = new ParsedValue(value.Value / 100d, true);
             return value;
         }
 
-        private double ParsePower()
+        private ParsedValue ParsePower()
         {
             var value = ParsePrimary();
             SkipWhiteSpace();
             if (!Match('^')) return value;
 
-            var exponent = ParseUnary();
-            if (value == 0d && exponent < 0d)
+            var exponent = ParseUnary().Value;
+            if (value.Value == 0d && exponent < 0d)
                 throw new ArithmeticException("Ноль нельзя возводить в отрицательную степень.");
 
-            value = Math.Pow(value, exponent);
-            EnsureFinite(value);
-            return value;
+            var result = Math.Pow(value.Value, exponent);
+            EnsureFinite(result);
+            return new ParsedValue(result, false);
         }
 
-        private double ParsePrimary()
+        private ParsedValue ParsePrimary()
         {
             SkipWhiteSpace();
             if (Match('('))
@@ -118,7 +142,7 @@ public sealed class ExpressionEvaluator
             return ParseNumber();
         }
 
-        private double ParseNumber()
+        private ParsedValue ParseNumber()
         {
             SkipWhiteSpace();
             var start = _position;
@@ -152,7 +176,7 @@ public sealed class ExpressionEvaluator
             }
 
             EnsureFinite(value);
-            return value;
+            return new ParsedValue(value, false);
         }
 
         public void SkipWhiteSpace()
