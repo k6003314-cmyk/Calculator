@@ -1,0 +1,9 @@
+Unhandled exception. System.NotSupportedException: Элементы управления ButtonBase не поддерживают установку для BorderColor значения Transparent.
+   at System.Windows.Forms.FlatButtonAppearance.set_BorderColor(Color value)
+   at Calculator.CalculatorForm.ApplyThemeToControl(Control control, ThemePalette palette)
+   at Calculator.CalculatorForm.ApplyThemeToControl(Control control, ThemePalette palette)
+   at Calculator.CalculatorForm.ApplyThemeToControl(Control control, ThemePalette palette)
+   at Calculator.CalculatorForm.ApplyThemeToControl(Control control, ThemePalette palette)
+   at Calculator.CalculatorForm.ApplyTheme()
+   at Calculator.CalculatorForm..ctor()
+   at Calculator.Program.Main()
