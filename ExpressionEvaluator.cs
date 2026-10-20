@@ -109,8 +109,24 @@ public sealed class ExpressionEvaluator
                 return new ParsedValue(Math.Sqrt(radicand), false);
             }
             var value = ParsePower();
-            while (Match('%')) value = new ParsedValue(value.Value / 100d, true);
-            return value;
+            while (true)
+            {
+                if (Match('%')) value = new ParsedValue(value.Value / 100d, true);
+                else if (Match('!')) value = new ParsedValue(CalculateFactorial(value.Value), false);
+                else return value;
+            }
+        }
+
+        private static double CalculateFactorial(double value)
+        {
+            if (value < 0d || value != Math.Truncate(value))
+                throw new ArithmeticException("Факториал определён только для целых неотрицательных чисел.");
+            if (value > 170d)
+                throw new ArithmeticException("Результат факториала слишком велик.");
+
+            var result = 1d;
+            for (var factor = 2; factor <= (int)value; factor++) result *= factor;
+            return result;
         }
 
         private ParsedValue ParsePower()

@@ -194,7 +194,8 @@ public sealed class CalculatorForm : Form
         AddButton("⌫", 1, 0, ButtonAction.Backspace, ButtonStyle.Utility);
         AddButton("(", 2, 0, ButtonAction.Insert, ButtonStyle.Utility);
         AddButton(")", 3, 0, ButtonAction.Insert, ButtonStyle.Utility);
-        AddButton("√", 0, 1, ButtonAction.Insert, ButtonStyle.Operator, columnSpan: 2);
+        AddButton("√", 0, 1, ButtonAction.Insert, ButtonStyle.Operator);
+        AddButton("x!", 1, 1, ButtonAction.Insert, ButtonStyle.Operator);
         AddButton("xʸ", 2, 1, ButtonAction.Insert, ButtonStyle.Operator);
         AddButton("%", 3, 1, ButtonAction.Insert, ButtonStyle.Operator);
         AddButton("7", 0, 2, ButtonAction.Insert, ButtonStyle.Number);
@@ -945,6 +946,7 @@ public sealed class CalculatorForm : Form
         "÷" => "/",
         "−" => "-",
         "xʸ" => "^",
+        "x!" => "!",
         _ => caption
     };
 
@@ -970,7 +972,7 @@ public sealed class CalculatorForm : Form
 
     private void HandleKeyPress(object? sender, KeyPressEventArgs e)
     {
-        if (char.IsAsciiDigit(e.KeyChar) || e.KeyChar is '.' or ',' or '+' or '-' or '*' or '/' or '^' or '%' or '(' or ')' or '√')
+        if (char.IsAsciiDigit(e.KeyChar) || e.KeyChar is '.' or ',' or '+' or '-' or '*' or '/' or '^' or '%' or '!' or '(' or ')' or '√')
         {
             var text = e.KeyChar switch { '.' => ",", _ => e.KeyChar.ToString() };
             ApplyAction(ButtonAction.Insert, text);
