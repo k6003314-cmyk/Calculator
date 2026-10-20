@@ -11,5 +11,11 @@
   <ItemGroup>
     <Compile Remove="Calculator.Checks/**/*.cs" />
     <EmbeddedResource Include="Assets\Makima.png" />
+    <EmbeddedResource Include="Assets\Tigakki.png" />
+    <EmbeddedResource Include="Assets\Card.png" />
+    <EmbeddedResource Include="Assets\Forest.png" />
+    <EmbeddedResource Include="Assets\Chains.png" />
+    <EmbeddedResource Include="Assets\JoJo.png" />
+    <EmbeddedResource Include="Assets\SunsetCats.png" />
   </ItemGroup>
 </Project>

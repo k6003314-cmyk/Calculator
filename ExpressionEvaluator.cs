@@ -33,7 +33,7 @@ public sealed class ExpressionEvaluator
             throw new ArithmeticException("Результат слишком велик или не может быть представлен числом.");
         }
 
-        return value.ToString("G15", CultureInfo.InvariantCulture);
+        return value == 0d ? "0" : value.ToString("R", CultureInfo.InvariantCulture);
     }
 
     private sealed class Parser(string text)
@@ -55,13 +55,13 @@ public sealed class ExpressionEvaluator
                 if (Match('+'))
                 {
                     var right = ParseTerm();
-                    value += right.IsPercentage ? value * right.Value : right.Value;
+                    value += right.IsPercentage && !isPercentage ? value * right.Value : right.Value;
                     isPercentage = false;
                 }
                 else if (Match('-'))
                 {
                     var right = ParseTerm();
-                    value -= right.IsPercentage ? value * right.Value : right.Value;
+                    value -= right.IsPercentage && !isPercentage ? value * right.Value : right.Value;
                     isPercentage = false;
                 }
                 else return new ParsedValue(value, isPercentage);
@@ -78,14 +78,20 @@ public sealed class ExpressionEvaluator
                 SkipWhiteSpace();
                 if (Match('*'))
                 {
-                    value = new ParsedValue(value.Value * ParseUnary().Value, false);
+                    var left = value.Value;
+                    var right = ParseUnary().Value;
+                    var product = left * right;
+                    EnsureNotUnderflow(product, left != 0d && right != 0d);
+                    value = new ParsedValue(product, false);
                     hasMultiplicationOrDivision = true;
                 }
                 else if (Match('/'))
                 {
                     var divisor = ParseUnary().Value;
                     if (divisor == 0d) throw new DivideByZeroException("На ноль делить нельзя.");
-                    value = new ParsedValue(value.Value / divisor, false);
+                    var quotient = value.Value / divisor;
+                    EnsureNotUnderflow(quotient, value.Value != 0d);
+                    value = new ParsedValue(quotient, false);
                     hasMultiplicationOrDivision = true;
                 }
                 else return hasMultiplicationOrDivision ? new ParsedValue(value.Value, false) : value;
@@ -140,6 +146,7 @@ public sealed class ExpressionEvaluator
                 throw new ArithmeticException("Ноль нельзя возводить в отрицательную степень.");
 
             var result = Math.Pow(value.Value, exponent);
+            EnsureNotUnderflow(result, value.Value != 0d);
             EnsureFinite(result);
             return new ParsedValue(result, false);
         }
@@ -177,7 +184,12 @@ public sealed class ExpressionEvaluator
 
             var radians = angle * (Math.PI / 180d);
             var result = function == "sin" ? Math.Sin(radians) : Math.Cos(radians);
-            if (Math.Abs(result) < 1e-14) result = 0d;
+            var normalizedAngle = angle % 360d;
+            if (normalizedAngle > 180d) normalizedAngle -= 360d;
+            else if (normalizedAngle < -180d) normalizedAngle += 360d;
+            if ((function == "sin" && normalizedAngle % 180d == 0d) ||
+                (function == "cos" && Math.Abs(normalizedAngle) == 90d))
+                result = 0d;
             EnsureFinite(result);
             return new ParsedValue(result, false);
         }
@@ -204,16 +216,31 @@ public sealed class ExpressionEvaluator
                 }
             }
 
+            if (!IsAtEnd && text[_position] is 'e' or 'E')
+            {
+                _position++;
+                if (!IsAtEnd && text[_position] is '+' or '-') _position++;
+                var exponentStart = _position;
+                while (!IsAtEnd && char.IsAsciiDigit(text[_position])) _position++;
+                if (_position == exponentStart)
+                    throw new FormatException("После E в научной записи укажите показатель степени.");
+            }
+
             if (!hasDigit)
             {
                 throw new FormatException("Ожидалось число или открывающая скобка.");
             }
 
             var token = text[start.._position];
-            if (!double.TryParse(token, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var value))
+            if (!double.TryParse(token, NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
             {
                 throw new FormatException("Не удалось прочитать число.");
             }
+
+            var exponentIndex = token.IndexOfAny(['e', 'E']);
+            var significand = exponentIndex < 0 ? token : token[..exponentIndex];
+            if (value == 0d && significand.Any(static character => character is >= '1' and <= '9'))
+                throw new ArithmeticException("Число слишком мало и округляется до нуля.");
 
             EnsureFinite(value);
             return new ParsedValue(value, false);
@@ -237,6 +264,12 @@ public sealed class ExpressionEvaluator
             {
                 throw new ArithmeticException("Результат слишком велик или не может быть представлен числом.");
             }
+        }
+
+        private static void EnsureNotUnderflow(double value, bool nonZeroExpected)
+        {
+            if (nonZeroExpected && value == 0d)
+                throw new ArithmeticException("Результат слишком мал и округляется до нуля.");
         }
     }
 }

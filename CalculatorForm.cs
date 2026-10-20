@@ -1,19 +1,91 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+using System.ComponentModel;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.RegularExpressions;
 using Microsoft.Win32;
 
 namespace Calculator;
 
+internal sealed class BufferedTableLayoutPanel : TableLayoutPanel
+{
+    private readonly bool _compositeChildren;
+
+    public BufferedTableLayoutPanel()
+        : this(false)
+    {
+    }
+
+    public BufferedTableLayoutPanel(bool compositeChildren)
+    {
+        _compositeChildren = compositeChildren;
+        DoubleBuffered = true;
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+    }
+
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            var parameters = base.CreateParams;
+            if (_compositeChildren) parameters.ExStyle |= 0x02000000; // WS_EX_COMPOSITED
+            return parameters;
+        }
+    }
+
+}
+
+internal sealed class OutlinedLabel : Label
+{
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool OutlineText { get; set; }
+
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public Color OutlineColor { get; set; } = Color.FromArgb(235, 18, 14, 20);
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        if (!OutlineText)
+        {
+            base.OnPaint(e);
+            return;
+        }
+
+        base.OnPaintBackground(e);
+        if (string.IsNullOrEmpty(Text)) return;
+
+        const TextFormatFlags flags = TextFormatFlags.SingleLine | TextFormatFlags.NoPadding |
+            TextFormatFlags.EndEllipsis | TextFormatFlags.Right | TextFormatFlags.VerticalCenter |
+            TextFormatFlags.NoPrefix | TextFormatFlags.PreserveGraphicsClipping;
+        var bounds = ClientRectangle;
+        for (var offsetY = -1; offsetY <= 1; offsetY++)
+        for (var offsetX = -1; offsetX <= 1; offsetX++)
+        {
+            if (offsetX == 0 && offsetY == 0) continue;
+            TextRenderer.DrawText(e.Graphics, Text, Font,
+                new Rectangle(bounds.X + offsetX, bounds.Y + offsetY, bounds.Width, bounds.Height), OutlineColor, flags);
+        }
+        TextRenderer.DrawText(e.Graphics, Text, Font, bounds, ForeColor, flags);
+    }
+}
+
 public sealed class CalculatorForm : Form
 {
+    private static readonly Regex NumericTokenRegex = new(@"\d+(?:[.,]\d+)?", RegexOptions.Compiled);
     private readonly ExpressionEvaluator _evaluator = new();
     private readonly Bitmap _makimaBackdrop;
+    private readonly Bitmap _tigakkiBackdrop;
+    private readonly Bitmap _cardBackdrop;
+    private readonly Bitmap _forestBackdrop;
+    private readonly Bitmap _chainsBackdrop;
+    private readonly Bitmap _joJoBackdrop;
+    private readonly Bitmap _sunsetCatsBackdrop;
     private Icon? _windowIcon;
-    private readonly Label _expressionLabel;
-    private readonly Label _resultLabel;
+    private readonly OutlinedLabel _expressionLabel;
+    private readonly OutlinedLabel _resultLabel;
     private readonly TableLayoutPanel _displayPanel;
     private readonly TableLayoutPanel _buttonGrid;
     private readonly TableLayoutPanel _scientificGrid;
@@ -30,6 +102,12 @@ public sealed class CalculatorForm : Form
     private readonly ToolStripMenuItem _darkThemeItem;
     private readonly ToolStripMenuItem _standardStyleItem;
     private readonly ToolStripMenuItem _makimaStyleItem;
+    private readonly ToolStripMenuItem _tigakkiStyleItem;
+    private readonly ToolStripMenuItem _cardStyleItem;
+    private readonly ToolStripMenuItem _forestStyleItem;
+    private readonly ToolStripMenuItem _chainsStyleItem;
+    private readonly ToolStripMenuItem _joJoStyleItem;
+    private readonly ToolStripMenuItem _sunsetCatsStyleItem;
     private AppTheme _activeTheme;
     private AppStyle _activeStyle;
     private string _expression = string.Empty;
@@ -49,6 +127,13 @@ public sealed class CalculatorForm : Form
         _activeTheme = ReadInitialTheme();
         _activeStyle = ReadInitialStyle();
         _makimaBackdrop = CreateMakimaBackdrop();
+        _tigakkiBackdrop = CreateTigakkiBackdrop();
+        _cardBackdrop = CreateImageBackdrop("Calculator.Assets.Card.png", Color.FromArgb(18, 13, 18));
+        _forestBackdrop = CreateImageBackdrop("Calculator.Assets.Forest.png", Color.FromArgb(23, 31, 28), verticalOffset: -130);
+        _chainsBackdrop = CreateImageBackdrop("Calculator.Assets.Chains.png", Color.FromArgb(13, 13, 17));
+        _joJoBackdrop = CreateImageBackdrop("Calculator.Assets.JoJo.png", Color.FromArgb(25, 17, 31), verticalOffset: -85);
+        _sunsetCatsBackdrop = CreateContainedImageBackdrop("Calculator.Assets.SunsetCats.png",
+            Color.FromArgb(246, 190, 153), Color.FromArgb(191, 104, 75));
         Text = "Калькулятор";
         Name = "CalculatorForm";
         StartPosition = FormStartPosition.CenterScreen;
@@ -56,10 +141,12 @@ public sealed class CalculatorForm : Form
         Size = new Size(420, 610);
         AutoScaleMode = AutoScaleMode.Dpi;
         KeyPreview = true;
+        DoubleBuffered = true;
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
         Font = new Font("Segoe UI", 11F, FontStyle.Regular, GraphicsUnit.Point);
         BackColor = Color.FromArgb(245, 247, 250);
 
-        var root = new TableLayoutPanel
+        var root = new BufferedTableLayoutPanel(compositeChildren: true)
         {
             Name = "rootLayout",
             Dock = DockStyle.Fill,
@@ -74,7 +161,7 @@ public sealed class CalculatorForm : Form
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         Controls.Add(root);
 
-        _displayPanel = new TableLayoutPanel
+        _displayPanel = new BufferedTableLayoutPanel
         {
             Name = "displayPanel",
             Dock = DockStyle.Fill,
@@ -141,19 +228,38 @@ public sealed class CalculatorForm : Form
         _darkThemeItem = new ToolStripMenuItem("Тёмная");
         _standardStyleItem = new ToolStripMenuItem("Стандартный");
         _makimaStyleItem = new ToolStripMenuItem("Макима");
+        _tigakkiStyleItem = new ToolStripMenuItem("Фурикомпаратор");
+        _cardStyleItem = new ToolStripMenuItem("Красная карта");
+        _forestStyleItem = new ToolStripMenuItem("Лесной портрет");
+        _chainsStyleItem = new ToolStripMenuItem("Цепи");
+        _joJoStyleItem = new ToolStripMenuItem("ДжоДжо");
+        _sunsetCatsStyleItem = new ToolStripMenuItem("Кошки на закате");
         _themeMenuItem.DropDownItems.AddRange(new ToolStripItem[] { _lightThemeItem, _darkThemeItem });
         _styleMenu.Items.Add(_themeMenuItem);
         _styleMenu.Items.Add(new ToolStripSeparator());
         _styleMenu.Items.Add(_standardStyleItem);
         _styleMenu.Items.Add(_makimaStyleItem);
+        _styleMenu.Items.Add(_tigakkiStyleItem);
+        _styleMenu.Items.Add(new ToolStripSeparator());
+        _styleMenu.Items.Add(_cardStyleItem);
+        _styleMenu.Items.Add(_forestStyleItem);
+        _styleMenu.Items.Add(_chainsStyleItem);
+        _styleMenu.Items.Add(_joJoStyleItem);
+        _styleMenu.Items.Add(_sunsetCatsStyleItem);
         _lightThemeItem.Click += (_, _) => SelectTheme(AppTheme.Light);
         _darkThemeItem.Click += (_, _) => SelectTheme(AppTheme.Dark);
         _standardStyleItem.Click += (_, _) => SelectStyle(AppStyle.Standard);
         _makimaStyleItem.Click += (_, _) => SelectStyle(AppStyle.Makima);
+        _tigakkiStyleItem.Click += (_, _) => SelectStyle(AppStyle.Tigakki);
+        _cardStyleItem.Click += (_, _) => SelectStyle(AppStyle.Card);
+        _forestStyleItem.Click += (_, _) => SelectStyle(AppStyle.Forest);
+        _chainsStyleItem.Click += (_, _) => SelectStyle(AppStyle.Chains);
+        _joJoStyleItem.Click += (_, _) => SelectStyle(AppStyle.JoJo);
+        _sunsetCatsStyleItem.Click += (_, _) => SelectStyle(AppStyle.SunsetCats);
         _styleButton.Click += (_, _) => _styleMenu.Show(_styleButton, new Point(0, _styleButton.Height));
         displayHeader.Controls.Add(_styleButton);
 
-        _expressionLabel = new Label
+        _expressionLabel = new OutlinedLabel
         {
             Name = "expressionLabel",
             Dock = DockStyle.Fill,
@@ -164,7 +270,7 @@ public sealed class CalculatorForm : Form
             AutoEllipsis = true,
             AccessibleName = "Текущее выражение"
         };
-        _resultLabel = new Label
+        _resultLabel = new OutlinedLabel
         {
             Name = "resultLabel",
             Dock = DockStyle.Fill,
@@ -180,7 +286,7 @@ public sealed class CalculatorForm : Form
         _displayPanel.Controls.Add(_resultLabel, 0, 2);
         root.Controls.Add(_displayPanel, 0, 0);
 
-        _buttonGrid = new TableLayoutPanel
+        _buttonGrid = new BufferedTableLayoutPanel
         {
             Name = "buttonGrid",
             Dock = DockStyle.Fill,
@@ -195,7 +301,7 @@ public sealed class CalculatorForm : Form
             _buttonGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 100F / 7));
         root.Controls.Add(_buttonGrid, 0, 2);
 
-        _scientificGrid = new TableLayoutPanel
+        _scientificGrid = new BufferedTableLayoutPanel
         {
             Name = "scientificButtonGrid",
             Dock = DockStyle.Fill,
@@ -232,13 +338,13 @@ public sealed class CalculatorForm : Form
         _scientificToggleButton.FlatAppearance.BorderSize = 0;
         _scientificToggleButton.Click += (_, _) => ToggleScientificPanel();
         _buttonGrid.Controls.Add(_scientificToggleButton, 0, 1);
-        _buttonGrid.SetColumnSpan(_scientificToggleButton, 2);
 
         AddButton("C", 0, 0, ButtonAction.Clear, ButtonStyle.Utility);
         AddButton("⌫", 1, 0, ButtonAction.Backspace, ButtonStyle.Utility);
         AddButton("(", 2, 0, ButtonAction.Insert, ButtonStyle.Utility);
         AddButton(")", 3, 0, ButtonAction.Insert, ButtonStyle.Utility);
-        AddButton("xʸ", 2, 1, ButtonAction.Insert, ButtonStyle.Operator);
+        AddButton("xʸ", 1, 1, ButtonAction.Insert, ButtonStyle.Operator);
+        AddButton("±", 2, 1, ButtonAction.ToggleSign, ButtonStyle.Utility);
         AddButton("%", 3, 1, ButtonAction.Insert, ButtonStyle.Operator);
         AddButton("7", 0, 2, ButtonAction.Insert, ButtonStyle.Number);
         AddButton("8", 1, 2, ButtonAction.Insert, ButtonStyle.Number);
@@ -252,7 +358,7 @@ public sealed class CalculatorForm : Form
         AddButton("2", 1, 4, ButtonAction.Insert, ButtonStyle.Number);
         AddButton("3", 2, 4, ButtonAction.Insert, ButtonStyle.Number);
         AddButton("−", 3, 4, ButtonAction.Insert, ButtonStyle.Operator);
-        AddButton("±", 0, 5, ButtonAction.ToggleSign, ButtonStyle.Utility);
+        AddButton("00", 0, 5, ButtonAction.Insert, ButtonStyle.Number);
         AddButton("0", 1, 5, ButtonAction.Insert, ButtonStyle.Number);
         AddButton(",", 2, 5, ButtonAction.Insert, ButtonStyle.Number);
         AddButton("+", 3, 5, ButtonAction.Insert, ButtonStyle.Operator);
@@ -263,6 +369,12 @@ public sealed class CalculatorForm : Form
         FormClosed += (_, _) =>
         {
             _makimaBackdrop.Dispose();
+            _tigakkiBackdrop.Dispose();
+            _cardBackdrop.Dispose();
+            _forestBackdrop.Dispose();
+            _chainsBackdrop.Dispose();
+            _joJoBackdrop.Dispose();
+            _sunsetCatsBackdrop.Dispose();
             _windowIcon?.Dispose();
         };
         HandleCreated += (_, _) => ApplyWindowChrome();
@@ -339,11 +451,21 @@ public sealed class CalculatorForm : Form
     {
         _scientificPanelVisible = !_scientificPanelVisible;
         var root = (TableLayoutPanel)_scientificGrid.Parent!;
-        root.RowStyles[1].Height = _scientificPanelVisible ? 58 : 0;
-        root.RowStyles[1].SizeType = SizeType.Absolute;
-        _scientificGrid.Visible = _scientificPanelVisible;
-        Height += _scientificPanelVisible ? 58 : -58;
-        _scientificToggleButton.Text = _scientificPanelVisible ? "⌃" : "⋯";
+        SuspendLayout();
+        root.SuspendLayout();
+        try
+        {
+            root.RowStyles[1].Height = _scientificPanelVisible ? 58 : 0;
+            root.RowStyles[1].SizeType = SizeType.Absolute;
+            _scientificGrid.Visible = _scientificPanelVisible;
+            Height += _scientificPanelVisible ? 58 : -58;
+            _scientificToggleButton.Text = _scientificPanelVisible ? "⌃" : "⋯";
+        }
+        finally
+        {
+            root.ResumeLayout(performLayout: true);
+            ResumeLayout(performLayout: true);
+        }
         var description = _scientificPanelVisible
             ? "Скрыть дополнительные функции"
             : "Показать дополнительные функции";
@@ -404,9 +526,21 @@ public sealed class CalculatorForm : Form
     {
         var palette = CurrentPalette;
         BackColor = palette.Background;
-        BackgroundImage = palette.HasAccents ? _makimaBackdrop : null;
+        BackgroundImage = _activeStyle switch
+        {
+            AppStyle.Makima => _makimaBackdrop,
+            AppStyle.Tigakki => _tigakkiBackdrop,
+            AppStyle.Card => _cardBackdrop,
+            AppStyle.Forest => _forestBackdrop,
+            AppStyle.Chains => _chainsBackdrop,
+            AppStyle.JoJo => _joJoBackdrop,
+            AppStyle.SunsetCats => _sunsetCatsBackdrop,
+            _ => null
+        };
         BackgroundImageLayout = ImageLayout.Zoom;
         ForeColor = palette.Text;
+        _expressionLabel.OutlineText = _activeStyle != AppStyle.Standard;
+        _resultLabel.OutlineText = _activeStyle != AppStyle.Standard;
         ApplyThemeToControl(this, palette);
 
         var themeName = _activeTheme == AppTheme.Light ? "светлая" : "тёмная";
@@ -416,7 +550,17 @@ public sealed class CalculatorForm : Form
         _styleButton.FlatAppearance.MouseOverBackColor = palette.ButtonHover;
         _styleButton.FlatAppearance.BorderSize = 0;
         _styleButton.FlatAppearance.BorderColor = palette.Accent;
-        var styleName = _activeStyle == AppStyle.Makima ? "Макима" : "Стандартный";
+        var styleName = _activeStyle switch
+        {
+            AppStyle.Makima => "Макима",
+            AppStyle.Tigakki => "Фурикомпаратор",
+            AppStyle.Card => "Красная карта",
+            AppStyle.Forest => "Лесной портрет",
+            AppStyle.Chains => "Цепи",
+            AppStyle.JoJo => "ДжоДжо",
+            AppStyle.SunsetCats => "Кошки на закате",
+            _ => "Стандартный"
+        };
         _styleButton.AccessibleName = $"Настройки оформления: {themeName} тема, стиль «{styleName}». Нажмите, чтобы изменить.";
         _styleToolTip.SetToolTip(_styleButton, $"Тема: {themeName}. Стиль: {styleName}. Нажмите, чтобы изменить.");
         _styleButton.Invalidate();
@@ -434,8 +578,26 @@ public sealed class CalculatorForm : Form
         _standardStyleItem.ForeColor = palette.Text;
         _makimaStyleItem.BackColor = palette.Background;
         _makimaStyleItem.ForeColor = palette.Text;
+        _tigakkiStyleItem.BackColor = palette.Background;
+        _tigakkiStyleItem.ForeColor = palette.Text;
+        _cardStyleItem.BackColor = palette.Background;
+        _cardStyleItem.ForeColor = palette.Text;
+        _forestStyleItem.BackColor = palette.Background;
+        _forestStyleItem.ForeColor = palette.Text;
+        _chainsStyleItem.BackColor = palette.Background;
+        _chainsStyleItem.ForeColor = palette.Text;
+        _joJoStyleItem.BackColor = palette.Background;
+        _joJoStyleItem.ForeColor = palette.Text;
+        _sunsetCatsStyleItem.BackColor = palette.Background;
+        _sunsetCatsStyleItem.ForeColor = palette.Text;
         _standardStyleItem.Checked = _activeStyle == AppStyle.Standard;
         _makimaStyleItem.Checked = _activeStyle == AppStyle.Makima;
+        _tigakkiStyleItem.Checked = _activeStyle == AppStyle.Tigakki;
+        _cardStyleItem.Checked = _activeStyle == AppStyle.Card;
+        _forestStyleItem.Checked = _activeStyle == AppStyle.Forest;
+        _chainsStyleItem.Checked = _activeStyle == AppStyle.Chains;
+        _joJoStyleItem.Checked = _activeStyle == AppStyle.JoJo;
+        _sunsetCatsStyleItem.Checked = _activeStyle == AppStyle.SunsetCats;
 
         _pinButton.BackColor = TopMost ? palette.EqualsButton : palette.UtilityButton;
         _pinButton.ForeColor = TopMost ? Color.White : palette.Text;
@@ -454,7 +616,7 @@ public sealed class CalculatorForm : Form
         var palette = CurrentPalette;
         var captionColor = palette.Background;
         var borderColor = palette.HasAccents ? palette.Accent : palette.Background;
-        var useDarkTitleBar = _activeStyle == AppStyle.Makima || _activeTheme == AppTheme.Dark;
+        var useDarkTitleBar = _activeStyle != AppStyle.Standard || _activeTheme == AppTheme.Dark;
 
         SetDwmAttribute(20, useDarkTitleBar ? 1 : 0); // DWMWA_USE_IMMERSIVE_DARK_MODE
         SetDwmAttribute(34, ToColorRef(borderColor)); // DWMWA_BORDER_COLOR
@@ -525,13 +687,36 @@ public sealed class CalculatorForm : Form
                 graphics.DrawLine(lashes, 19, 9, 20, 6);
                 graphics.DrawLine(lashes, 24, 11, 27, 8);
             }
+            else if (_activeStyle == AppStyle.Tigakki)
+            {
+                using var badge = CreateRoundedRectangle(new RectangleF(1.5F, 1.5F, 29, 29), 7);
+                using var badgeFill = new LinearGradientBrush(
+                    new Rectangle(1, 1, 30, 30), Color.FromArgb(57, 48, 61), Color.FromArgb(24, 21, 29), 45F);
+                using var badgeBorder = new Pen(Color.FromArgb(236, 151, 67), 1.3F);
+                graphics.FillPath(badgeFill, badge);
+                graphics.DrawPath(badgeBorder, badge);
+
+                using var tire = new SolidBrush(Color.FromArgb(30, 26, 35));
+                using var tireEdge = new Pen(Color.FromArgb(103, 87, 105), 1.2F);
+                using var rim = new SolidBrush(Color.FromArgb(239, 143, 56));
+                using var rimEdge = new Pen(Color.FromArgb(255, 198, 113), 1.1F);
+                using var hub = new SolidBrush(Color.FromArgb(249, 231, 220));
+                graphics.FillEllipse(tire, 5, 5, 22, 22);
+                graphics.DrawEllipse(tireEdge, 5, 5, 22, 22);
+                graphics.FillEllipse(rim, 9, 9, 14, 14);
+                graphics.DrawEllipse(rimEdge, 9, 9, 14, 14);
+                graphics.FillEllipse(hub, 13, 13, 6, 6);
+            }
             else
             {
                 var palette = CurrentPalette;
+                var iconStart = _activeStyle == AppStyle.Standard ? Color.FromArgb(65, 96, 137) : palette.Background;
+                var iconEnd = _activeStyle == AppStyle.Standard ? Color.FromArgb(25, 37, 56) : palette.Surface;
+                var iconBorder = _activeStyle == AppStyle.Standard ? Color.FromArgb(177, 204, 232) : palette.Accent;
                 using var badge = CreateRoundedRectangle(new RectangleF(1.5F, 1.5F, 29, 29), 7);
                 using var badgeFill = new LinearGradientBrush(
-                    new Rectangle(1, 1, 30, 30), Color.FromArgb(65, 96, 137), Color.FromArgb(25, 37, 56), 45F);
-                using var badgeBorder = new Pen(Color.FromArgb(177, 204, 232), 1.3F);
+                    new Rectangle(1, 1, 30, 30), iconStart, iconEnd, 45F);
+                using var badgeBorder = new Pen(iconBorder, 1.3F);
                 graphics.FillPath(badgeFill, badge);
                 graphics.DrawPath(badgeBorder, badge);
 
@@ -540,9 +725,9 @@ public sealed class CalculatorForm : Form
                 using var outline = new Pen(Color.FromArgb(22, 34, 51), 1.4F);
                 graphics.FillPath(bodyFill, body);
                 graphics.DrawPath(outline, body);
-                using var display = new SolidBrush(Color.FromArgb(34, 103, 170));
+                using var display = new SolidBrush(_activeStyle == AppStyle.Standard ? Color.FromArgb(34, 103, 170) : palette.EqualsButton);
                 graphics.FillRectangle(display, 11, 7, 10, 5);
-                using var keyBlue = new SolidBrush(Color.FromArgb(91, 139, 190));
+                using var keyBlue = new SolidBrush(_activeStyle == AppStyle.Standard ? Color.FromArgb(91, 139, 190) : palette.Accent);
                 using var keyRed = new SolidBrush(Color.FromArgb(190, 75, 73));
                 foreach (var key in new[]
                 {
@@ -592,10 +777,10 @@ public sealed class CalculatorForm : Form
         var graphics = e.Graphics;
         graphics.SmoothingMode = SmoothingMode.AntiAlias;
         var palette = CurrentPalette;
-        using var fill = new SolidBrush(_activeStyle == AppStyle.Makima
+        using var fill = new SolidBrush(_activeStyle == AppStyle.Tigakki
             ? Color.FromArgb(229, 132, 42)
             : palette.EqualsButton);
-        using var outline = new Pen(_activeStyle == AppStyle.Makima ? palette.Accent : palette.Text, 1.5F);
+        using var outline = new Pen(palette.HasAccents ? palette.Accent : palette.Text, 1.5F);
         if (_activeStyle == AppStyle.Makima)
         {
             using var eye = new GraphicsPath();
@@ -622,6 +807,114 @@ public sealed class CalculatorForm : Form
             graphics.DrawLine(lashPen, 12, 12, 11, 9);
             graphics.DrawLine(lashPen, 17, 12, 17, 9);
             graphics.DrawLine(lashPen, 22, 13, 24, 11);
+        }
+        else if (_activeStyle == AppStyle.Tigakki)
+        {
+            using var leftEar = new GraphicsPath();
+            leftEar.AddPolygon(new[] { new PointF(10, 13), new PointF(10, 5), new PointF(16, 12) });
+            using var rightEar = new GraphicsPath();
+            rightEar.AddPolygon(new[] { new PointF(20, 12), new PointF(27, 5), new PointF(25, 15) });
+            graphics.FillPath(fill, leftEar);
+            graphics.FillPath(fill, rightEar);
+            graphics.DrawPath(outline, leftEar);
+            graphics.DrawPath(outline, rightEar);
+
+            using var tire = new SolidBrush(Color.FromArgb(34, 28, 38));
+            using var tireEdge = new Pen(Color.FromArgb(239, 143, 56), 1.4F);
+            using var rim = new SolidBrush(Color.FromArgb(239, 143, 56));
+            using var hub = new SolidBrush(Color.FromArgb(249, 231, 220));
+            graphics.FillEllipse(tire, 8, 11, 20, 20);
+            graphics.DrawEllipse(tireEdge, 8, 11, 20, 20);
+            graphics.FillEllipse(rim, 12, 15, 12, 12);
+            graphics.FillEllipse(hub, 16, 19, 4, 4);
+            using var eyePen = new Pen(Color.FromArgb(255, 206, 116), 1.2F) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+            graphics.DrawLine(eyePen, 12, 16, 15, 17);
+            graphics.DrawLine(eyePen, 21, 17, 24, 16);
+        }
+        else if (_activeStyle == AppStyle.Card)
+        {
+            using var cardPath = new GraphicsPath();
+            cardPath.AddPolygon(new[]
+            {
+                new PointF(10, 11), new PointF(23, 8), new PointF(27, 27), new PointF(14, 30)
+            });
+            using var cardFill = new SolidBrush(Color.FromArgb(246, 233, 226));
+            using var cardEdge = new Pen(Color.FromArgb(151, 38, 55), 1.6F);
+            graphics.FillPath(cardFill, cardPath);
+            graphics.DrawPath(cardEdge, cardPath);
+            using var cardMark = new SolidBrush(Color.FromArgb(190, 39, 61));
+            graphics.FillPolygon(cardMark, new[]
+            {
+                new PointF(18.5F, 13), new PointF(21, 17), new PointF(18.5F, 21), new PointF(16, 17)
+            });
+        }
+        else if (_activeStyle == AppStyle.Forest)
+        {
+            using var leaf = new GraphicsPath();
+            leaf.AddBezier(7, 27, 7, 13, 16, 7, 26, 8);
+            leaf.AddBezier(26, 8, 27, 19, 20, 29, 7, 27);
+            using var leafFill = new SolidBrush(Color.FromArgb(176, 203, 137));
+            using var leafEdge = new Pen(Color.FromArgb(42, 78, 51), 1.5F);
+            graphics.FillPath(leafFill, leaf);
+            graphics.DrawPath(leafEdge, leaf);
+            using var vein = new Pen(Color.FromArgb(42, 78, 51), 1.3F) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+            graphics.DrawBezier(vein, 8, 26, 13, 21, 18, 15, 25, 9);
+        }
+        else if (_activeStyle == AppStyle.Chains)
+        {
+            var state = graphics.Save();
+            graphics.TranslateTransform(18, 20);
+            graphics.RotateTransform(-42);
+            using var chainPen = new Pen(Color.FromArgb(231, 224, 215), 3F)
+            {
+                LineJoin = LineJoin.Round,
+                StartCap = LineCap.Round,
+                EndCap = LineCap.Round
+            };
+            graphics.DrawEllipse(chainPen, -11, -5, 15, 10);
+            graphics.DrawEllipse(chainPen, -2, -5, 15, 10);
+            graphics.Restore(state);
+        }
+        else if (_activeStyle == AppStyle.JoJo)
+        {
+            const float centerX = 18F;
+            const float centerY = 20F;
+            using var star = new GraphicsPath();
+            var points = new PointF[10];
+            for (var point = 0; point < points.Length; point++)
+            {
+                var radius = point % 2 == 0 ? 12F : 5.2F;
+                var angle = -Math.PI / 2 + point * Math.PI / 5;
+                points[point] = new PointF(
+                    centerX + (float)Math.Cos(angle) * radius,
+                    centerY + (float)Math.Sin(angle) * radius);
+            }
+            star.AddPolygon(points);
+            using var starFill = new SolidBrush(Color.FromArgb(155, 76, 219));
+            using var starEdge = new Pen(Color.FromArgb(232, 196, 255), 1.6F);
+            graphics.FillPath(starFill, star);
+            graphics.DrawPath(starEdge, star);
+        }
+        else if (_activeStyle == AppStyle.SunsetCats)
+        {
+            using var earFill = new SolidBrush(Color.FromArgb(205, 102, 72));
+            using var faceFill = new SolidBrush(Color.FromArgb(255, 220, 190));
+            using var catOutline = new Pen(Color.FromArgb(103, 52, 48), 1.4F);
+            using var leftEar = new GraphicsPath();
+            leftEar.AddPolygon(new[] { new PointF(10, 18), new PointF(11, 8), new PointF(18, 14) });
+            using var rightEar = new GraphicsPath();
+            rightEar.AddPolygon(new[] { new PointF(19, 14), new PointF(26, 8), new PointF(26, 19) });
+            graphics.FillPath(earFill, leftEar);
+            graphics.FillPath(earFill, rightEar);
+            graphics.DrawPath(catOutline, leftEar);
+            graphics.DrawPath(catOutline, rightEar);
+            graphics.FillEllipse(faceFill, 10, 13, 16, 16);
+            graphics.DrawEllipse(catOutline, 10, 13, 16, 16);
+            using var eyeBrush = new SolidBrush(Color.FromArgb(91, 46, 45));
+            graphics.FillEllipse(eyeBrush, 14, 19, 2, 3);
+            graphics.FillEllipse(eyeBrush, 20, 19, 2, 3);
+            using var noseBrush = new SolidBrush(Color.FromArgb(197, 92, 84));
+            graphics.FillEllipse(noseBrush, 17, 23, 2.5F, 2);
         }
         else
         {
@@ -731,6 +1024,85 @@ public sealed class CalculatorForm : Form
             SurroundColors = new[] { Color.FromArgb(0, 196, 42, 57) }
         };
         graphics.FillPath(glow, glowPath);
+        return backdrop;
+    }
+
+    private static Bitmap CreateTigakkiBackdrop()
+    {
+        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("Calculator.Assets.Tigakki.png")
+            ?? throw new InvalidOperationException("Не удалось загрузить изображение темы «Фурикомпаратор».");
+        using var original = Image.FromStream(stream);
+
+        const int backdropWidth = 500;
+        const int backdropHeight = 726;
+        var backdrop = new Bitmap(backdropWidth, backdropHeight, PixelFormat.Format32bppPArgb);
+        using var graphics = Graphics.FromImage(backdrop);
+        graphics.Clear(Color.FromArgb(24, 21, 29));
+        graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+        graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+
+        var crop = new Rectangle(4, 4, original.Width - 8, original.Height - 8);
+        var scale = Math.Max(backdropWidth / (float)crop.Width, backdropHeight / (float)crop.Height);
+        var imageWidth = (int)Math.Ceiling(crop.Width * scale);
+        var imageHeight = (int)Math.Ceiling(crop.Height * scale);
+        var imageBounds = new Rectangle((backdropWidth - imageWidth) / 2, (backdropHeight - imageHeight) / 2, imageWidth, imageHeight);
+
+        graphics.DrawImage(original, imageBounds, crop.X, crop.Y, crop.Width, crop.Height, GraphicsUnit.Pixel);
+        using var glowPath = new GraphicsPath();
+        glowPath.AddEllipse(44, 78, backdrop.Width - 88, 510);
+        using var glow = new PathGradientBrush(glowPath)
+        {
+            CenterColor = Color.FromArgb(30, 239, 143, 56),
+            SurroundColors = new[] { Color.FromArgb(0, 239, 143, 56) }
+        };
+        graphics.FillPath(glow, glowPath);
+        return backdrop;
+    }
+
+    private static Bitmap CreateImageBackdrop(string resourceName, Color baseColor, int verticalOffset = 0)
+    {
+        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName)
+            ?? throw new InvalidOperationException($"Не удалось загрузить фоновое изображение: {resourceName}.");
+        using var original = Image.FromStream(stream);
+
+        const int width = 500;
+        const int height = 726;
+        var backdrop = new Bitmap(width, height, PixelFormat.Format32bppPArgb);
+        using var graphics = Graphics.FromImage(backdrop);
+        graphics.Clear(baseColor);
+        graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+        graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+
+        var scale = Math.Max(width / (float)original.Width, height / (float)original.Height);
+        var imageWidth = (int)Math.Ceiling(original.Width * scale);
+        var imageHeight = (int)Math.Ceiling(original.Height * scale);
+        var bounds = new Rectangle((width - imageWidth) / 2, (height - imageHeight) / 2 + verticalOffset, imageWidth, imageHeight);
+        graphics.DrawImage(original, bounds, 0, 0, original.Width, original.Height, GraphicsUnit.Pixel);
+        return backdrop;
+    }
+
+    private static Bitmap CreateContainedImageBackdrop(string resourceName, Color topColor, Color bottomColor)
+    {
+        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName)
+            ?? throw new InvalidOperationException($"Не удалось загрузить фоновое изображение: {resourceName}.");
+        using var original = Image.FromStream(stream);
+
+        const int width = 500;
+        const int height = 726;
+        var backdrop = new Bitmap(width, height, PixelFormat.Format32bppPArgb);
+        using var graphics = Graphics.FromImage(backdrop);
+        graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+        graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+        using (var background = new LinearGradientBrush(new Rectangle(0, 0, width, height), topColor, bottomColor, 90F))
+            graphics.FillRectangle(background, 0, 0, width, height);
+
+        // Fit the full landscape artwork across the top of the calculator canvas so
+        // all three characters remain visible instead of cropping to its center.
+        var scale = Math.Min(width / (float)original.Width, height / (float)original.Height);
+        var imageWidth = (int)Math.Round(original.Width * scale);
+        var imageHeight = (int)Math.Round(original.Height * scale);
+        var imageBounds = new Rectangle((width - imageWidth) / 2, 0, imageWidth, imageHeight);
+        graphics.DrawImage(original, imageBounds, 0, 0, original.Width, original.Height, GraphicsUnit.Pixel);
         return backdrop;
     }
 
@@ -850,6 +1222,96 @@ public sealed class CalculatorForm : Form
     {
         get
         {
+            if (_activeStyle == AppStyle.SunsetCats)
+                return _activeTheme == AppTheme.Dark
+                    ? new ThemePalette(
+                        Color.FromArgb(48, 34, 39), Color.FromArgb(64, 45, 48), Color.FromArgb(255, 239, 224),
+                        Color.FromArgb(207, 169, 151), Color.FromArgb(89, 59, 59), Color.FromArgb(107, 67, 63),
+                        Color.FromArgb(138, 75, 61), Color.FromArgb(177, 67, 50), Color.FromArgb(202, 83, 58),
+                        Color.FromArgb(248, 193, 122), Color.FromArgb(255, 143, 130),
+                        Color.FromArgb(67, 45, 48), Color.FromArgb(255, 242, 226), true, Color.FromArgb(239, 160, 104))
+                    : new ThemePalette(
+                        Color.FromArgb(242, 190, 153), Color.FromArgb(249, 215, 195), Color.FromArgb(65, 39, 42),
+                        Color.FromArgb(124, 80, 68), Color.FromArgb(251, 226, 210), Color.FromArgb(240, 199, 179),
+                        Color.FromArgb(233, 171, 141), Color.FromArgb(171, 73, 56), Color.FromArgb(195, 91, 68),
+                        Color.FromArgb(117, 83, 47), Color.FromArgb(169, 54, 61),
+                        Color.FromArgb(249, 228, 216), Color.FromArgb(67, 42, 44), true, Color.FromArgb(162, 74, 59));
+
+            if (_activeStyle == AppStyle.Card)
+                return _activeTheme == AppTheme.Dark
+                    ? new ThemePalette(
+                        Color.FromArgb(18, 13, 18), Color.FromArgb(35, 25, 31), Color.FromArgb(250, 236, 237),
+                        Color.FromArgb(210, 174, 180), Color.FromArgb(45, 31, 39), Color.FromArgb(63, 38, 47),
+                        Color.FromArgb(94, 35, 46), Color.FromArgb(171, 29, 51), Color.FromArgb(202, 44, 66),
+                        Color.FromArgb(248, 181, 184), Color.FromArgb(255, 112, 122),
+                        Color.FromArgb(39, 27, 33), Color.FromArgb(255, 244, 242), true, Color.FromArgb(202, 56, 72))
+                    : new ThemePalette(
+                        Color.FromArgb(235, 219, 218), Color.FromArgb(247, 235, 232), Color.FromArgb(47, 29, 36),
+                        Color.FromArgb(111, 77, 82), Color.FromArgb(239, 222, 221), Color.FromArgb(222, 199, 202),
+                        Color.FromArgb(239, 203, 202), Color.FromArgb(184, 42, 58), Color.FromArgb(211, 58, 72),
+                        Color.FromArgb(131, 52, 60), Color.FromArgb(172, 47, 55),
+                        Color.FromArgb(250, 235, 230), Color.FromArgb(255, 246, 240), true, Color.FromArgb(185, 48, 64));
+
+            if (_activeStyle == AppStyle.Forest)
+                return _activeTheme == AppTheme.Dark
+                    ? new ThemePalette(
+                        Color.FromArgb(23, 31, 28), Color.FromArgb(34, 44, 39), Color.FromArgb(244, 238, 214),
+                        Color.FromArgb(197, 196, 170), Color.FromArgb(43, 54, 48), Color.FromArgb(56, 68, 58),
+                        Color.FromArgb(70, 80, 57), Color.FromArgb(176, 133, 52), Color.FromArgb(206, 159, 68),
+                        Color.FromArgb(242, 203, 111), Color.FromArgb(242, 123, 104),
+                        Color.FromArgb(53, 60, 48), Color.FromArgb(255, 246, 224), true, Color.FromArgb(219, 177, 83))
+                    : new ThemePalette(
+                        Color.FromArgb(214, 220, 199), Color.FromArgb(233, 232, 212), Color.FromArgb(39, 48, 39),
+                        Color.FromArgb(91, 102, 81), Color.FromArgb(233, 231, 210), Color.FromArgb(211, 216, 195),
+                        Color.FromArgb(216, 218, 186), Color.FromArgb(182, 131, 43), Color.FromArgb(208, 153, 55),
+                        Color.FromArgb(111, 104, 54), Color.FromArgb(164, 64, 52),
+                        Color.FromArgb(242, 240, 219), Color.FromArgb(255, 247, 225), true, Color.FromArgb(175, 127, 44));
+
+            if (_activeStyle == AppStyle.Chains)
+                return _activeTheme == AppTheme.Dark
+                    ? new ThemePalette(
+                        Color.FromArgb(13, 13, 17), Color.FromArgb(29, 29, 35), Color.FromArgb(246, 243, 242),
+                        Color.FromArgb(197, 189, 193), Color.FromArgb(39, 39, 46), Color.FromArgb(54, 53, 61),
+                        Color.FromArgb(69, 60, 67), Color.FromArgb(127, 69, 82), Color.FromArgb(154, 87, 101),
+                        Color.FromArgb(239, 210, 212), Color.FromArgb(248, 121, 130),
+                        Color.FromArgb(42, 40, 45), Color.FromArgb(255, 248, 245), true, Color.FromArgb(200, 166, 176))
+                    : new ThemePalette(
+                        Color.FromArgb(221, 219, 220), Color.FromArgb(239, 236, 235), Color.FromArgb(39, 35, 39),
+                        Color.FromArgb(101, 94, 99), Color.FromArgb(232, 229, 229), Color.FromArgb(210, 206, 210),
+                        Color.FromArgb(225, 216, 219), Color.FromArgb(151, 82, 96), Color.FromArgb(177, 101, 114),
+                        Color.FromArgb(112, 76, 83), Color.FromArgb(164, 54, 62),
+                        Color.FromArgb(244, 240, 238), Color.FromArgb(255, 248, 245), true, Color.FromArgb(149, 106, 117));
+
+            if (_activeStyle == AppStyle.JoJo)
+                return _activeTheme == AppTheme.Dark
+                    ? new ThemePalette(
+                        Color.FromArgb(25, 17, 31), Color.FromArgb(42, 31, 49), Color.FromArgb(248, 235, 214),
+                        Color.FromArgb(204, 183, 205), Color.FromArgb(52, 39, 61), Color.FromArgb(68, 48, 71),
+                        Color.FromArgb(89, 53, 75), Color.FromArgb(174, 125, 36), Color.FromArgb(207, 157, 48),
+                        Color.FromArgb(242, 213, 128), Color.FromArgb(241, 112, 130),
+                        Color.FromArgb(43, 31, 50), Color.FromArgb(255, 246, 231), true, Color.FromArgb(220, 175, 69))
+                    : new ThemePalette(
+                        Color.FromArgb(75, 59, 83), Color.FromArgb(93, 75, 101), Color.FromArgb(255, 242, 223),
+                        Color.FromArgb(220, 201, 220), Color.FromArgb(84, 66, 93), Color.FromArgb(109, 83, 109),
+                        Color.FromArgb(129, 78, 107), Color.FromArgb(176, 128, 37), Color.FromArgb(208, 159, 47),
+                        Color.FromArgb(255, 222, 128), Color.FromArgb(255, 137, 146),
+                        Color.FromArgb(68, 51, 79), Color.FromArgb(255, 246, 231), true, Color.FromArgb(229, 187, 74));
+
+            if (_activeStyle == AppStyle.Tigakki)
+                return _activeTheme == AppTheme.Dark
+                    ? new ThemePalette(
+                        Color.FromArgb(24, 21, 29), Color.FromArgb(42, 36, 47), Color.FromArgb(246, 235, 226),
+                        Color.FromArgb(202, 188, 181), Color.FromArgb(48, 41, 55), Color.FromArgb(61, 52, 66),
+                        Color.FromArgb(89, 57, 49), Color.FromArgb(211, 105, 43), Color.FromArgb(235, 132, 55),
+                        Color.FromArgb(255, 207, 126), Color.FromArgb(255, 130, 125),
+                        Color.FromArgb(246, 232, 223), Color.FromArgb(255, 246, 235), true, Color.FromArgb(239, 153, 65))
+                    : new ThemePalette(
+                        Color.FromArgb(231, 219, 220), Color.FromArgb(243, 232, 228), Color.FromArgb(49, 39, 49),
+                        Color.FromArgb(111, 96, 105), Color.FromArgb(238, 226, 223), Color.FromArgb(221, 207, 211),
+                        Color.FromArgb(238, 213, 193), Color.FromArgb(224, 119, 49), Color.FromArgb(199, 91, 34),
+                        Color.FromArgb(139, 83, 34), Color.FromArgb(177, 59, 59),
+                        Color.FromArgb(255, 241, 231), Color.FromArgb(255, 246, 235), true, Color.FromArgb(218, 128, 53));
+
             if (_activeStyle == AppStyle.Makima)
                 return _activeTheme == AppTheme.Dark
                     ? new ThemePalette(
@@ -944,6 +1406,18 @@ public sealed class CalculatorForm : Form
     private void ToggleSign()
     {
         if (_expression.Length == 0) return;
+
+        if ((_expression.Contains('e') || _expression.Contains('E')) &&
+            double.TryParse(_expression.Replace(',', '.'), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var scientificValue) &&
+            double.IsFinite(scientificValue))
+        {
+            var negated = -scientificValue;
+            _expression = negated == 0d ? "0" : negated.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+            _showingResult = false;
+            return;
+        }
+
         if (_showingResult) _showingResult = false;
 
         var end = _expression.Length;
@@ -982,8 +1456,8 @@ public sealed class CalculatorForm : Form
             var sourceExpression = _expression;
             var result = _evaluator.Evaluate(_expression);
             var resultText = _evaluator.FormatResult(result);
-            _expression = resultText;
-            _resultLabel.Text = sourceExpression + " = " + resultText;
+            _expression = result == 0d ? "0" : result.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+            _resultLabel.Text = FormatExpressionForDisplay(sourceExpression) + " = " + FormatExpressionForDisplay(resultText);
             _resultLabel.ForeColor = CurrentPalette.Success;
             _showingResult = true;
         }
@@ -999,7 +1473,7 @@ public sealed class CalculatorForm : Form
 
     private void RefreshDisplay(bool updatePreview = true)
     {
-        _expressionLabel.Text = _expression.Length == 0 ? "0" : _expression;
+        _expressionLabel.Text = _expression.Length == 0 ? "0" : FormatExpressionForDisplay(_expression);
         if (updatePreview && !_showingResult) UpdatePreview();
     }
 
@@ -1015,7 +1489,7 @@ public sealed class CalculatorForm : Form
         try
         {
             var value = _evaluator.Evaluate(_expression);
-            _resultLabel.Text = "= " + _evaluator.FormatResult(value);
+            _resultLabel.Text = "= " + FormatExpressionForDisplay(_evaluator.FormatResult(value));
             _resultLabel.ForeColor = CurrentPalette.Success;
         }
         catch (FormatException)
@@ -1035,6 +1509,23 @@ public sealed class CalculatorForm : Form
             _resultLabel.ForeColor = CurrentPalette.Error;
         }
     }
+
+    private static string FormatExpressionForDisplay(string expression) => NumericTokenRegex.Replace(expression, match =>
+    {
+        var token = match.Value;
+        var decimalIndex = token.IndexOfAny([',', '.']);
+        var integerLength = decimalIndex < 0 ? token.Length : decimalIndex;
+        if (integerLength <= 3 || (integerLength > 1 && token[0] == '0')) return token;
+
+        var grouped = new StringBuilder(token.Length + integerLength / 3);
+        for (var index = 0; index < integerLength; index++)
+        {
+            if (index > 0 && (integerLength - index) % 3 == 0) grouped.Append(' ');
+            grouped.Append(token[index]);
+        }
+        if (decimalIndex >= 0) grouped.Append(token.AsSpan(decimalIndex));
+        return grouped.ToString();
+    });
 
     private static string NormalizeButtonText(string caption) => caption switch
     {
@@ -1069,7 +1560,7 @@ public sealed class CalculatorForm : Form
 
     private void HandleKeyPress(object? sender, KeyPressEventArgs e)
     {
-        if (char.IsAsciiDigit(e.KeyChar) || e.KeyChar is '.' or ',' or '+' or '-' or '*' or '/' or '^' or '%' or '!' or '(' or ')' or '√')
+        if (char.IsAsciiDigit(e.KeyChar) || e.KeyChar is '.' or ',' or '+' or '-' or '*' or '/' or '^' or '%' or '!' or '(' or ')' or '√' or 'e' or 'E')
         {
             var text = e.KeyChar switch { '.' => ",", _ => e.KeyChar.ToString() };
             ApplyAction(ButtonAction.Insert, text);
@@ -1078,7 +1569,7 @@ public sealed class CalculatorForm : Form
     }
 
     private enum AppTheme { Light, Dark }
-    private enum AppStyle { Standard, Makima }
+    private enum AppStyle { Standard, Makima, Tigakki, Card, Forest, Chains, JoJo, SunsetCats }
     private enum ButtonAction { Insert, Clear, Backspace, ToggleSign, Equals }
     private enum ButtonStyle { Number, Operator, Utility, Equals }
 
