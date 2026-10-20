@@ -155,7 +155,31 @@ public sealed class ExpressionEvaluator
                 return value;
             }
 
+            if (!IsAtEnd && char.IsAsciiLetter(text[_position]))
+                return ParseTrigonometricFunction();
+
             return ParseNumber();
+        }
+
+        private ParsedValue ParseTrigonometricFunction()
+        {
+            var start = _position;
+            while (!IsAtEnd && char.IsAsciiLetter(text[_position])) _position++;
+            var function = text[start.._position].ToLowerInvariant();
+            if (function is not ("sin" or "cos"))
+                throw new FormatException("Поддерживаются функции sin и cos.");
+
+            SkipWhiteSpace();
+            if (!Match('(')) throw new FormatException("После sin или cos нужна открывающая скобка.");
+            var angle = ParseExpression().Value;
+            SkipWhiteSpace();
+            if (!Match(')')) throw new FormatException("Не найдена закрывающая скобка функции.");
+
+            var radians = angle * (Math.PI / 180d);
+            var result = function == "sin" ? Math.Sin(radians) : Math.Cos(radians);
+            if (Math.Abs(result) < 1e-14) result = 0d;
+            EnsureFinite(result);
+            return new ParsedValue(result, false);
         }
 
         private ParsedValue ParseNumber()

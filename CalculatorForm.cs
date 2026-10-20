@@ -16,6 +16,10 @@ public sealed class CalculatorForm : Form
     private readonly Label _resultLabel;
     private readonly TableLayoutPanel _displayPanel;
     private readonly TableLayoutPanel _buttonGrid;
+    private readonly TableLayoutPanel _scientificGrid;
+    private readonly ToolTip _scientificToolTip;
+    private readonly Button _scientificToggleButton;
+    private bool _scientificPanelVisible;
     private readonly Button _pinButton;
     private readonly ToolTip _pinToolTip;
     private readonly Button _styleButton;
@@ -61,11 +65,12 @@ public sealed class CalculatorForm : Form
             Dock = DockStyle.Fill,
             Padding = new Padding(16),
             ColumnCount = 1,
-            RowCount = 2,
+            RowCount = 3,
             BackColor = BackColor
         };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 158));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         Controls.Add(root);
 
@@ -188,14 +193,51 @@ public sealed class CalculatorForm : Form
             _buttonGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
         for (var row = 0; row < 7; row++)
             _buttonGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 100F / 7));
-        root.Controls.Add(_buttonGrid, 0, 1);
+        root.Controls.Add(_buttonGrid, 0, 2);
+
+        _scientificGrid = new TableLayoutPanel
+        {
+            Name = "scientificButtonGrid",
+            Dock = DockStyle.Fill,
+            ColumnCount = 5,
+            RowCount = 1,
+            Padding = new Padding(0, 3, 0, 0),
+            BackColor = BackColor,
+            Visible = false
+        };
+        for (var column = 0; column < 5; column++)
+            _scientificGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20));
+        _scientificGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        root.Controls.Add(_scientificGrid, 0, 1);
+        AddScientificButton("sin", 0);
+        AddScientificButton("cos", 1);
+        AddScientificButton("x²", 2);
+        AddScientificButton("x!", 3);
+        AddScientificButton("√", 4);
+
+        _scientificToolTip = new ToolTip();
+        _scientificToggleButton = new Button
+        {
+            Name = "scientificToggleButton",
+            Text = "⋯",
+            Dock = DockStyle.Fill,
+            Margin = new Padding(5),
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 17F, FontStyle.Regular, GraphicsUnit.Point),
+            TabStop = false,
+            AccessibleRole = AccessibleRole.CheckButton,
+            AccessibleName = "Показать дополнительные функции",
+            Tag = ButtonStyle.Operator
+        };
+        _scientificToggleButton.FlatAppearance.BorderSize = 0;
+        _scientificToggleButton.Click += (_, _) => ToggleScientificPanel();
+        _buttonGrid.Controls.Add(_scientificToggleButton, 0, 1);
+        _buttonGrid.SetColumnSpan(_scientificToggleButton, 2);
 
         AddButton("C", 0, 0, ButtonAction.Clear, ButtonStyle.Utility);
         AddButton("⌫", 1, 0, ButtonAction.Backspace, ButtonStyle.Utility);
         AddButton("(", 2, 0, ButtonAction.Insert, ButtonStyle.Utility);
         AddButton(")", 3, 0, ButtonAction.Insert, ButtonStyle.Utility);
-        AddButton("√", 0, 1, ButtonAction.Insert, ButtonStyle.Operator);
-        AddButton("x!", 1, 1, ButtonAction.Insert, ButtonStyle.Operator);
         AddButton("xʸ", 2, 1, ButtonAction.Insert, ButtonStyle.Operator);
         AddButton("%", 3, 1, ButtonAction.Insert, ButtonStyle.Operator);
         AddButton("7", 0, 2, ButtonAction.Insert, ButtonStyle.Number);
@@ -263,6 +305,50 @@ public sealed class CalculatorForm : Form
         button.Click += (_, _) => ApplyAction(action, caption);
         _buttonGrid.Controls.Add(button, column, row);
         if (columnSpan > 1) _buttonGrid.SetColumnSpan(button, columnSpan);
+    }
+
+    private void AddScientificButton(string caption, int column)
+    {
+        var button = new Button
+        {
+            Name = "scientific" + caption,
+            Text = caption,
+            Dock = DockStyle.Fill,
+            Margin = new Padding(4),
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 12F, FontStyle.Regular, GraphicsUnit.Point),
+            TabStop = false,
+            AccessibleRole = AccessibleRole.PushButton,
+            AccessibleName = caption switch
+            {
+                "sin" => "Синус угла в градусах",
+                "cos" => "Косинус угла в градусах",
+                "x²" => "Возвести выражение в квадрат",
+                "x!" => "Факториал",
+                "√" => "Квадратный корень",
+                _ => caption
+            },
+            Tag = ButtonStyle.Operator
+        };
+        button.FlatAppearance.BorderSize = 0;
+        button.Click += (_, _) => ApplyAction(ButtonAction.Insert, caption);
+        _scientificGrid.Controls.Add(button, column, 0);
+    }
+
+    private void ToggleScientificPanel()
+    {
+        _scientificPanelVisible = !_scientificPanelVisible;
+        var root = (TableLayoutPanel)_scientificGrid.Parent!;
+        root.RowStyles[1].Height = _scientificPanelVisible ? 58 : 0;
+        root.RowStyles[1].SizeType = SizeType.Absolute;
+        _scientificGrid.Visible = _scientificPanelVisible;
+        Height += _scientificPanelVisible ? 58 : -58;
+        _scientificToggleButton.Text = _scientificPanelVisible ? "⌃" : "⋯";
+        var description = _scientificPanelVisible
+            ? "Скрыть дополнительные функции"
+            : "Показать дополнительные функции";
+        _scientificToggleButton.AccessibleName = description;
+        _scientificToolTip.SetToolTip(_scientificToggleButton, description);
     }
 
     private void ToggleAlwaysOnTop(object? sender, EventArgs e)
@@ -660,7 +746,7 @@ public sealed class CalculatorForm : Form
         }
         else if (control is TableLayoutPanel or Panel)
         {
-            control.BackColor = palette.HasAccents && control.Name is "rootLayout" or "buttonGrid"
+            control.BackColor = palette.HasAccents && control.Name is "rootLayout" or "buttonGrid" or "scientificButtonGrid"
                 ? Color.Transparent
                 : palette.Background;
         }
@@ -824,9 +910,19 @@ public sealed class CalculatorForm : Form
                 Calculate();
                 return;
             case ButtonAction.Insert:
-                if (_showingResult && caption == "√")
+                if (caption is "sin" or "cos" or "x²" or "x!" or "√")
                 {
-                    _expression = "√(" + _expression + ")";
+                    if (caption is "sin" or "cos")
+                        _expression = _expression.Length == 0
+                            ? caption + "("
+                            : caption + "(" + _expression + ")";
+                    else if (caption == "x²" && _expression.Length > 0)
+                        _expression = "(" + _expression + ")^2";
+                    else if (caption == "x!" && _expression.Length > 0)
+                        _expression = "(" + _expression + ")!";
+                    else if (caption == "√")
+                        _expression = _expression.Length == 0 ? "√(" : "√(" + _expression + ")";
+
                     _showingResult = false;
                     _resultLabel.Text = string.Empty;
                     _resultLabel.ForeColor = CurrentPalette.SecondaryText;
@@ -947,6 +1043,7 @@ public sealed class CalculatorForm : Form
         "−" => "-",
         "xʸ" => "^",
         "x!" => "!",
+        "x²" => "^2",
         _ => caption
     };
 
