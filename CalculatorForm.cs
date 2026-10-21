@@ -1596,6 +1596,13 @@ public sealed class CalculatorForm : Form
         var end = _expression.Length;
         if (_expression[end - 1] == ')')
         {
+            if (TryFindTrailingTrigFunctionStart(_expression, out var functionStart))
+            {
+                if (IsUnaryMinusBefore(functionStart)) _expression = _expression.Remove(functionStart - 1, 1);
+                else _expression = _expression.Insert(functionStart, "-");
+                return;
+            }
+
             var depth = 0;
             var open = -1;
             for (var i = end - 1; i >= 0; i--)
@@ -1605,7 +1612,7 @@ public sealed class CalculatorForm : Form
             }
             if (open >= 0)
             {
-                if (open > 0 && _expression[open - 1] == '-') _expression = _expression.Remove(open - 1, 1);
+                if (IsUnaryMinusBefore(open)) _expression = _expression.Remove(open - 1, 1);
                 else _expression = _expression.Insert(open, "-");
             }
             return;
@@ -1615,10 +1622,12 @@ public sealed class CalculatorForm : Form
         while (start > 0 && (char.IsAsciiDigit(_expression[start - 1]) || _expression[start - 1] is '.' or ',')) start--;
         if (start == end) return;
 
-        var isUnaryMinus = start > 0 && _expression[start - 1] == '-' &&
-            (start == 1 || _expression[start - 2] is '+' or '-' or '*' or '/' or '(');
-        _expression = isUnaryMinus ? _expression.Remove(start - 1, 1) : _expression.Insert(start, "-");
+        if (IsUnaryMinusBefore(start)) _expression = _expression.Remove(start - 1, 1);
+        else _expression = _expression.Insert(start, "-");
     }
+
+    private bool IsUnaryMinusBefore(int index) => index > 0 && _expression[index - 1] == '-' &&
+        (index == 1 || _expression[index - 2] is '+' or '-' or '*' or '/' or '^' or '(');
 
     private void Calculate()
     {

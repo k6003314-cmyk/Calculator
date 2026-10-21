@@ -35,9 +35,9 @@ public sealed class ExpressionEvaluator
 
         if (value == 0d) return "0";
 
-        // Сокращаем двоичный хвост только у дробных значений при отображении.
-        // Целые числа оставляем в round-trip формате, чтобы не терять точность.
-        var format = value == Math.Truncate(value) ? "R" : "G15";
+        // G16 убирает типичный двоичный хвост, сохраняя достаточно цифр,
+        // чтобы повторное использование результата не теряло лишнюю точность.
+        var format = value == Math.Truncate(value) ? "R" : "G16";
         return value.ToString(format, CultureInfo.InvariantCulture);
     }
 
@@ -122,7 +122,12 @@ public sealed class ExpressionEvaluator
             var value = ParsePower();
             while (true)
             {
-                if (Match('%')) value = new ParsedValue(value.Value / 100d, true);
+                if (Match('%'))
+                {
+                    var percentage = value.Value / 100d;
+                    EnsureNotUnderflow(percentage, value.Value != 0d);
+                    value = new ParsedValue(percentage, true);
+                }
                 else if (Match('!')) value = new ParsedValue(CalculateFactorial(value.Value), false);
                 else return value;
             }
