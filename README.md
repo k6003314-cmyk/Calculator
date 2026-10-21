@@ -6,10 +6,10 @@
 
 ## Файлы проекта
 
-- `Calculator.csproj` — настройки WinForms и целевая версия .NET.
-- `Program.cs` — запуск приложения.
-- `CalculatorForm.cs` — окно, кнопки и обработка клавиатуры.
-- `ExpressionEvaluator.cs` — разбор и вычисление выражений.
+- `Calculator.csproj` - настройки WinForms и целевая версия .NET.
+- `Program.cs` - запуск приложения.
+- `CalculatorForm.cs` - окно, кнопки и обработка клавиатуры.
+- `ExpressionEvaluator.cs` - разбор и вычисление выражений.
 
 ## Запуск и сборка
 
