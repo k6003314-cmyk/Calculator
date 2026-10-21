@@ -33,7 +33,12 @@ public sealed class ExpressionEvaluator
             throw new ArithmeticException("Результат слишком велик или не может быть представлен числом.");
         }
 
-        return value == 0d ? "0" : value.ToString("R", CultureInfo.InvariantCulture);
+        if (value == 0d) return "0";
+
+        // Сокращаем двоичный хвост только у дробных значений при отображении.
+        // Целые числа оставляем в round-trip формате, чтобы не терять точность.
+        var format = value == Math.Truncate(value) ? "R" : "G15";
+        return value.ToString(format, CultureInfo.InvariantCulture);
     }
 
     private sealed class Parser(string text)
@@ -178,20 +183,44 @@ public sealed class ExpressionEvaluator
 
             SkipWhiteSpace();
             if (!Match('(')) throw new FormatException("После sin или cos нужна открывающая скобка.");
+            var argumentStart = _position;
+            if (!HasNumericFunctionArgument(argumentStart))
+                throw new FormatException($"Введите число в функции {function}.");
+
             var angle = ParseExpression().Value;
             SkipWhiteSpace();
             if (!Match(')')) throw new FormatException("Не найдена закрывающая скобка функции.");
 
-            var radians = angle * (Math.PI / 180d);
-            var result = function == "sin" ? Math.Sin(radians) : Math.Cos(radians);
             var normalizedAngle = angle % 360d;
             if (normalizedAngle > 180d) normalizedAngle -= 360d;
             else if (normalizedAngle < -180d) normalizedAngle += 360d;
+
+            // Сначала сокращаем угол, чтобы тригонометрия точнее работала на больших значениях.
+            var radians = normalizedAngle * (Math.PI / 180d);
+            var result = function == "sin" ? Math.Sin(radians) : Math.Cos(radians);
             if ((function == "sin" && normalizedAngle % 180d == 0d) ||
                 (function == "cos" && Math.Abs(normalizedAngle) == 90d))
                 result = 0d;
             EnsureFinite(result);
             return new ParsedValue(result, false);
+        }
+
+        private bool HasNumericFunctionArgument(int start)
+        {
+            var nestedParentheses = 0;
+            for (var index = start; index < text.Length; index++)
+            {
+                var character = text[index];
+                if (char.IsAsciiDigit(character)) return true;
+                if (character == '(') nestedParentheses++;
+                else if (character == ')')
+                {
+                    if (nestedParentheses == 0) return false;
+                    nestedParentheses--;
+                }
+            }
+
+            return false;
         }
 
         private ParsedValue ParseNumber()

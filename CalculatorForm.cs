@@ -48,7 +48,7 @@ internal sealed class OutlinedLabel : Label
 
     protected override void OnPaint(PaintEventArgs e)
     {
-        if (!OutlineText)
+        if (TextAlign is not (ContentAlignment.TopRight or ContentAlignment.MiddleRight or ContentAlignment.BottomRight))
         {
             base.OnPaint(e);
             return;
@@ -58,15 +58,19 @@ internal sealed class OutlinedLabel : Label
         if (string.IsNullOrEmpty(Text)) return;
 
         const TextFormatFlags flags = TextFormatFlags.SingleLine | TextFormatFlags.NoPadding |
-            TextFormatFlags.EndEllipsis | TextFormatFlags.Right | TextFormatFlags.VerticalCenter |
-            TextFormatFlags.NoPrefix | TextFormatFlags.PreserveGraphicsClipping;
+            TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix |
+            TextFormatFlags.PreserveGraphicsClipping;
         var bounds = ClientRectangle;
-        for (var offsetY = -1; offsetY <= 1; offsetY++)
-        for (var offsetX = -1; offsetX <= 1; offsetX++)
+        if (OutlineText)
         {
-            if (offsetX == 0 && offsetY == 0) continue;
-            TextRenderer.DrawText(e.Graphics, Text, Font,
-                new Rectangle(bounds.X + offsetX, bounds.Y + offsetY, bounds.Width, bounds.Height), OutlineColor, flags);
+            for (var offsetY = -1; offsetY <= 1; offsetY++)
+            for (var offsetX = -1; offsetX <= 1; offsetX++)
+            {
+                if (offsetX == 0 && offsetY == 0) continue;
+                TextRenderer.DrawText(e.Graphics, Text, Font,
+                    new Rectangle(bounds.X + offsetX, bounds.Y + offsetY, bounds.Width, bounds.Height),
+                    OutlineColor, flags);
+            }
         }
         TextRenderer.DrawText(e.Graphics, Text, Font, bounds, ForeColor, flags);
     }
@@ -75,6 +79,8 @@ internal sealed class OutlinedLabel : Label
 public sealed class CalculatorForm : Form
 {
     private static readonly Regex NumericTokenRegex = new(@"\d+(?:[.,]\d+)?", RegexOptions.Compiled);
+    private readonly Dictionary<Control, (string Family, FontStyle Style, float Size, Size ReferenceSize)> _responsiveFonts = new();
+    private Size _fontReferenceClientSize;
     private readonly ExpressionEvaluator _evaluator = new();
     private readonly Bitmap _makimaBackdrop;
     private readonly Bitmap _tigakkiBackdrop;
@@ -137,6 +143,7 @@ public sealed class CalculatorForm : Form
         Text = "Калькулятор";
         Name = "CalculatorForm";
         StartPosition = FormStartPosition.CenterScreen;
+        MaximizeBox = false;
         MinimumSize = new Size(330, 480);
         Size = new Size(420, 610);
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -166,13 +173,14 @@ public sealed class CalculatorForm : Form
             Name = "displayPanel",
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 3,
+            RowCount = 4,
             Padding = new Padding(4, 6, 4, 10)
         };
         _displayPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         _displayPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
-        _displayPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 58));
-        _displayPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 42));
+        _displayPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+        _displayPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
+        _displayPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         _displayPanel.Paint += DrawStyleAccents;
 
         var displayHeader = new FlowLayoutPanel
@@ -203,6 +211,7 @@ public sealed class CalculatorForm : Form
             AccessibleDescription = "Переключает режим отображения поверх остальных окон"
         };
         _pinButton.FlatAppearance.BorderSize = 0;
+        RegisterResponsiveFont(_pinButton);
         _pinToolTip = new ToolTip();
         _pinToolTip.SetToolTip(_pinButton, "Закрепить окно поверх всех окон");
         _pinButton.Click += ToggleAlwaysOnTop;
@@ -219,6 +228,7 @@ public sealed class CalculatorForm : Form
             AccessibleName = "Настройки оформления"
         };
         _styleButton.FlatAppearance.BorderSize = 0;
+        RegisterResponsiveFont(_styleButton);
         _styleButton.Paint += DrawStyleButtonIcon;
         _styleToolTip = new ToolTip();
         _styleToolTip.SetToolTip(_styleButton, "Тема и стиль оформления");
@@ -263,22 +273,24 @@ public sealed class CalculatorForm : Form
         {
             Name = "expressionLabel",
             Dock = DockStyle.Fill,
+            AutoSize = false,
             Text = "0",
             TextAlign = ContentAlignment.MiddleRight,
             Font = new Font("Segoe UI", 22F, FontStyle.Regular, GraphicsUnit.Point),
             ForeColor = Color.FromArgb(35, 42, 52),
-            AutoEllipsis = true,
+            AutoEllipsis = false,
             AccessibleName = "Текущее выражение"
         };
         _resultLabel = new OutlinedLabel
         {
             Name = "resultLabel",
             Dock = DockStyle.Fill,
+            AutoSize = false,
             Text = string.Empty,
             TextAlign = ContentAlignment.MiddleRight,
             Font = new Font("Segoe UI", 13F, FontStyle.Regular, GraphicsUnit.Point),
             ForeColor = Color.FromArgb(95, 105, 117),
-            AutoEllipsis = true,
+            AutoEllipsis = false,
             AccessibleName = "Результат вычисления"
         };
         _displayPanel.Controls.Add(displayHeader, 0, 0);
@@ -329,13 +341,14 @@ public sealed class CalculatorForm : Form
             Dock = DockStyle.Fill,
             Margin = new Padding(5),
             FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 17F, FontStyle.Regular, GraphicsUnit.Point),
+            Font = new Font("Segoe UI", 14F, FontStyle.Regular, GraphicsUnit.Point),
             TabStop = false,
             AccessibleRole = AccessibleRole.CheckButton,
             AccessibleName = "Показать дополнительные функции",
             Tag = ButtonStyle.Operator
         };
         _scientificToggleButton.FlatAppearance.BorderSize = 0;
+        RegisterResponsiveFont(_scientificToggleButton);
         _scientificToggleButton.Click += (_, _) => ToggleScientificPanel();
         _buttonGrid.Controls.Add(_scientificToggleButton, 0, 1);
 
@@ -377,6 +390,24 @@ public sealed class CalculatorForm : Form
             _sunsetCatsBackdrop.Dispose();
             _windowIcon?.Dispose();
         };
+        Shown += (_, _) =>
+        {
+            _fontReferenceClientSize = ClientSize;
+            foreach (var control in _responsiveFonts.Keys.ToArray())
+            {
+                var spec = _responsiveFonts[control];
+                _responsiveFonts[control] = (spec.Family, spec.Style, spec.Size, control.ClientSize);
+            }
+            ApplyResponsiveLayout();
+            ApplyResponsiveChrome();
+            ApplyResponsiveFontScaling();
+        };
+        Resize += (_, _) =>
+        {
+            ApplyResponsiveLayout();
+            ApplyResponsiveChrome();
+            ApplyResponsiveFontScaling();
+        };
         HandleCreated += (_, _) => ApplyWindowChrome();
         ApplyTheme();
     }
@@ -397,11 +428,12 @@ public sealed class CalculatorForm : Form
             Dock = DockStyle.Fill,
             Margin = new Padding(5),
             FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", caption == "=" ? 16F : 14F, FontStyle.Regular, GraphicsUnit.Point),
+            Font = new Font("Segoe UI", 14F, FontStyle.Regular, GraphicsUnit.Point),
             TabStop = false,
             AccessibleRole = AccessibleRole.PushButton,
             Tag = style
         };
+        RegisterResponsiveFont(button);
         button.FlatAppearance.BorderSize = 0;
         button.FlatAppearance.MouseOverBackColor = Color.FromArgb(225, 232, 241);
         button.BackColor = style switch
@@ -428,7 +460,7 @@ public sealed class CalculatorForm : Form
             Dock = DockStyle.Fill,
             Margin = new Padding(4),
             FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 12F, FontStyle.Regular, GraphicsUnit.Point),
+            Font = new Font("Segoe UI", 14F, FontStyle.Regular, GraphicsUnit.Point),
             TabStop = false,
             AccessibleRole = AccessibleRole.PushButton,
             AccessibleName = caption switch
@@ -442,24 +474,113 @@ public sealed class CalculatorForm : Form
             },
             Tag = ButtonStyle.Operator
         };
+        RegisterResponsiveFont(button);
         button.FlatAppearance.BorderSize = 0;
         button.Click += (_, _) => ApplyAction(ButtonAction.Insert, caption);
         _scientificGrid.Controls.Add(button, column, 0);
+    }
+
+    private void RegisterResponsiveFont(Control control)
+    {
+        var font = control.Font;
+        _responsiveFonts[control] = (font.Name, font.Style, font.Size, Size.Empty);
+        control.SizeChanged += (_, _) => ApplyResponsiveFont(control);
+    }
+
+    private void ApplyResponsiveFontScaling()
+    {
+        if (_fontReferenceClientSize.Width <= 0 || _fontReferenceClientSize.Height <= 0)
+            return;
+
+        foreach (var control in _responsiveFonts.Keys.ToArray())
+            ApplyResponsiveFont(control);
+    }
+
+    private void ApplyResponsiveFont(Control control)
+    {
+        if (control.IsDisposed || !_responsiveFonts.TryGetValue(control, out var spec) ||
+            spec.ReferenceSize.Width <= 0 || spec.ReferenceSize.Height <= 0)
+            return;
+
+        var scale = Math.Clamp(Math.Min(
+            control.ClientSize.Width / (double)spec.ReferenceSize.Width,
+            control.ClientSize.Height / (double)spec.ReferenceSize.Height), 0.58, 1.2);
+        var size = Math.Max(8F, (float)(spec.Size * scale));
+        if (Math.Abs(control.Font.Size - size) < 0.15F) return;
+
+        var oldFont = control.Font;
+        control.Font = new Font(spec.Family, size, spec.Style, GraphicsUnit.Point);
+        oldFont.Dispose();
+    }
+
+    private void ApplyResponsiveChrome()
+    {
+        if (_fontReferenceClientSize.Width <= 0 || _fontReferenceClientSize.Height <= 0) return;
+
+        var scale = Math.Clamp(Math.Min(
+            ClientSize.Width / (double)_fontReferenceClientSize.Width,
+            ClientSize.Height / (double)_fontReferenceClientSize.Height), 0.72, 1.15);
+        var root = (TableLayoutPanel)_scientificGrid.Parent!;
+        root.Padding = new Padding(Math.Clamp((int)Math.Round(16 * scale), 10, 18));
+        _displayPanel.Padding = new Padding(
+            Math.Clamp((int)Math.Round(4 * scale), 3, 5),
+            Math.Clamp((int)Math.Round(6 * scale), 4, 7),
+            Math.Clamp((int)Math.Round(4 * scale), 3, 5),
+            Math.Clamp((int)Math.Round(10 * scale), 6, 11));
+        _buttonGrid.Padding = new Padding(0, Math.Clamp((int)Math.Round(6 * scale), 4, 7), 0, 0);
+
+        var buttonMargin = Math.Clamp((int)Math.Round(4 * scale), 2, 5);
+        foreach (Control control in _buttonGrid.Controls)
+            if (control is Button button) button.Margin = new Padding(buttonMargin);
+        foreach (Control control in _scientificGrid.Controls)
+            if (control is Button button) button.Margin = new Padding(buttonMargin);
+
+        var iconWidth = Math.Clamp((int)Math.Round(42 * scale), 32, 48);
+        var iconHeight = Math.Clamp((int)Math.Round(40 * scale), 30, 46);
+        _pinButton.Size = new Size(iconWidth, iconHeight);
+        _pinButton.MinimumSize = new Size(iconWidth, iconHeight);
+        _styleButton.Size = new Size(iconWidth, iconHeight);
+        _styleButton.Margin = new Padding(Math.Clamp((int)Math.Round(6 * scale), 4, 7), 0, 0, 0);
+    }
+
+    private void ApplyResponsiveLayout()
+    {
+        if (_fontReferenceClientSize.Width <= 0) return;
+
+        var root = (TableLayoutPanel)_scientificGrid.Parent!;
+        var displayHeight = Math.Clamp((int)Math.Round(ClientSize.Height * 0.28), 110, 158);
+        var scientificHeight = _scientificPanelVisible
+            ? Math.Clamp((int)Math.Round(ClientSize.Height * 0.105), 42, 58)
+            : 0;
+
+        root.RowStyles[0].Height = displayHeight;
+        root.RowStyles[0].SizeType = SizeType.Absolute;
+        root.RowStyles[1].Height = scientificHeight;
+        root.RowStyles[1].SizeType = SizeType.Absolute;
+
+        var displayScale = displayHeight / 158.0;
+        _displayPanel.RowStyles[0].Height = Math.Clamp((int)Math.Round(40 * displayScale), 32, 40);
+        _displayPanel.RowStyles[1].Height = Math.Clamp((int)Math.Round(42 * displayScale), 30, 42);
+        _displayPanel.RowStyles[2].Height = Math.Clamp((int)Math.Round(30 * displayScale), 22, 30);
     }
 
     private void ToggleScientificPanel()
     {
         _scientificPanelVisible = !_scientificPanelVisible;
         var root = (TableLayoutPanel)_scientificGrid.Parent!;
+        var previousScientificHeight = (int)root.RowStyles[1].Height;
         SuspendLayout();
         root.SuspendLayout();
         try
         {
-            root.RowStyles[1].Height = _scientificPanelVisible ? 58 : 0;
+            var scientificHeight = _scientificPanelVisible
+                ? Math.Clamp((int)Math.Round(ClientSize.Height * 0.105), 42, 58)
+                : 0;
+            root.RowStyles[1].Height = scientificHeight;
             root.RowStyles[1].SizeType = SizeType.Absolute;
             _scientificGrid.Visible = _scientificPanelVisible;
-            Height += _scientificPanelVisible ? 58 : -58;
-            _scientificToggleButton.Text = _scientificPanelVisible ? "⌃" : "⋯";
+            Height += _scientificPanelVisible ? scientificHeight : -previousScientificHeight;
+            _scientificToggleButton.Text = "⋯";
         }
         finally
         {
@@ -775,6 +896,8 @@ public sealed class CalculatorForm : Form
     private void DrawStyleButtonIcon(object? sender, PaintEventArgs e)
     {
         var graphics = e.Graphics;
+        if (_styleButton.ClientSize.Width <= 0 || _styleButton.ClientSize.Height <= 0) return;
+        graphics.ScaleTransform(_styleButton.ClientSize.Width / 42F, _styleButton.ClientSize.Height / 40F);
         graphics.SmoothingMode = SmoothingMode.AntiAlias;
         var palette = CurrentPalette;
         using var fill = new SolidBrush(_activeStyle == AppStyle.Tigakki
@@ -1355,7 +1478,12 @@ public sealed class CalculatorForm : Form
                 break;
             case ButtonAction.Backspace:
                 if (_showingResult) _showingResult = false;
-                if (_expression.Length > 0) _expression = _expression[..^1];
+                if (_expression.Length > 0)
+                {
+                    _expression = TryFindTrailingTrigFunctionStart(_expression, out var functionStart)
+                        ? _expression[..functionStart]
+                        : _expression[..^1];
+                }
                 _resultLabel.Text = string.Empty;
                 _resultLabel.ForeColor = CurrentPalette.SecondaryText;
                 break;
@@ -1375,9 +1503,12 @@ public sealed class CalculatorForm : Form
                 if (caption is "sin" or "cos" or "x²" or "x!" or "√")
                 {
                     if (caption is "sin" or "cos")
-                        _expression = _expression.Length == 0
-                            ? caption + "("
+                    {
+                        var needsOperand = _expression.Length == 0 || _expression[^1] is '+' or '-' or '*' or '/' or '^' or '(';
+                        _expression = needsOperand
+                            ? _expression + caption + "("
                             : caption + "(" + _expression + ")";
+                    }
                     else if (caption == "x²" && _expression.Length > 0)
                         _expression = "(" + _expression + ")^2";
                     else if (caption == "x!" && _expression.Length > 0)
@@ -1401,6 +1532,48 @@ public sealed class CalculatorForm : Form
         }
 
         RefreshDisplay();
+    }
+
+    private static bool TryFindTrailingTrigFunctionStart(string expression, out int functionStart)
+    {
+        functionStart = -1;
+        if (expression.EndsWith("sin(", StringComparison.OrdinalIgnoreCase) ||
+            expression.EndsWith("cos(", StringComparison.OrdinalIgnoreCase))
+        {
+            functionStart = expression.Length - 4;
+            return true;
+        }
+
+        if (expression.EndsWith("sin", StringComparison.OrdinalIgnoreCase) ||
+            expression.EndsWith("cos", StringComparison.OrdinalIgnoreCase))
+        {
+            functionStart = expression.Length - 3;
+            return true;
+        }
+
+        if (expression[^1] != ')') return false;
+
+        var depth = 0;
+        for (var index = expression.Length - 1; index >= 0; index--)
+        {
+            if (expression[index] == ')') depth++;
+            else if (expression[index] == '(' && --depth == 0)
+            {
+                var candidate = index - 3;
+                if (candidate < 0) return false;
+
+                var function = expression.AsSpan(candidate, 3);
+                if (!function.Equals("sin", StringComparison.OrdinalIgnoreCase) &&
+                    !function.Equals("cos", StringComparison.OrdinalIgnoreCase))
+                    return false;
+
+                if (candidate > 0 && char.IsAsciiLetter(expression[candidate - 1])) return false;
+                functionStart = candidate;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void ToggleSign()
@@ -1453,8 +1626,9 @@ public sealed class CalculatorForm : Form
 
         try
         {
-            var sourceExpression = _expression;
-            var result = _evaluator.Evaluate(_expression);
+            var sourceExpression = CloseUnfinishedTrigonometricFunctions(_expression);
+            _expression = sourceExpression;
+            var result = _evaluator.Evaluate(sourceExpression);
             var resultText = _evaluator.FormatResult(result);
             _expression = result == 0d ? "0" : result.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
             _resultLabel.Text = FormatExpressionForDisplay(sourceExpression) + " = " + FormatExpressionForDisplay(resultText);
@@ -1471,9 +1645,44 @@ public sealed class CalculatorForm : Form
         RefreshDisplay(updatePreview: false);
     }
 
+    private static string CloseUnfinishedTrigonometricFunctions(string expression)
+    {
+        var openParentheses = new List<(int Index, bool IsTrigonometric)>();
+        for (var index = 0; index < expression.Length; index++)
+        {
+            if (expression[index] == '(')
+            {
+                var nameEnd = index;
+                while (nameEnd > 0 && char.IsWhiteSpace(expression[nameEnd - 1])) nameEnd--;
+                var isTrigonometric = nameEnd >= 3 &&
+                    (expression.AsSpan(nameEnd - 3, 3).Equals("sin", StringComparison.OrdinalIgnoreCase) ||
+                     expression.AsSpan(nameEnd - 3, 3).Equals("cos", StringComparison.OrdinalIgnoreCase)) &&
+                    (nameEnd == 3 || !char.IsAsciiLetter(expression[nameEnd - 4]));
+                openParentheses.Add((index, isTrigonometric));
+            }
+            else if (expression[index] == ')' && openParentheses.Count > 0)
+            {
+                openParentheses.RemoveAt(openParentheses.Count - 1);
+            }
+        }
+
+        var firstUnclosedFunction = openParentheses.FindIndex(parenthesis => parenthesis.IsTrigonometric);
+        if (firstUnclosedFunction < 0) return expression;
+
+        var missingClosures = openParentheses.Count - firstUnclosedFunction;
+        return expression + new string(')', missingClosures);
+    }
+
     private void RefreshDisplay(bool updatePreview = true)
     {
-        _expressionLabel.Text = _expression.Length == 0 ? "0" : FormatExpressionForDisplay(_expression);
+        var expressionToDisplay = _expression;
+        if (_showingResult && double.TryParse(_expression, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var result) && double.IsFinite(result))
+        {
+            expressionToDisplay = _evaluator.FormatResult(result);
+        }
+
+        _expressionLabel.Text = expressionToDisplay.Length == 0 ? "0" : FormatExpressionForDisplay(expressionToDisplay);
         if (updatePreview && !_showingResult) UpdatePreview();
     }
 
